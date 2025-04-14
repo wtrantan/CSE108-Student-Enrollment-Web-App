@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+{% block title %}Available Courses - Student Enrollment System{% endblock %}
+
+{% block content %}
+<h2>Available Courses</h2>
+
+{% if courses %}
+    <div class="row">
+        {% for course in courses %}
+            <div class="col-md-4 mb-4">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        {{ course.name }}
+                    </div>
+                    <div class="card-body">
+                        <p>{{ course.description }}</p>
+                        <p><strong>Teacher:</strong> {{ course.teacher.name }}</p>
+                        <p><strong>Students Enrolled:</strong> {{ course.get_enrollment_count() }} / {{ course.capacity }}</p>
+                        
+                        {% if course.id in enrolled_course_ids %}
+                            <button class="btn btn-success" disabled>Already Enrolled</button>
+                        {% elif course.get_enrollment_count() >= course.capacity %}
+                            <button class="btn btn-danger" disabled>Class Full</button>
+                        {% else %}
+                            <form action="{{ url_for('enroll_course', course_id=course.id) }}" method="POST">
+                                <button type="submit" class="btn btn-primary">Enroll</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="alert alert-info">
+        No courses are currently available.
+    </div>
+{% endif %}
+{% endblock %}

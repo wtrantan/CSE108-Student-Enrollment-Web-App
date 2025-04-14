@@ -1,0 +1,41 @@
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Users</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='index.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='home.css') }}"
+    />
+  </head>
+  <body>
+    {%extends "nav.html"%} {% block nav %}
+    <div class="content">
+      <table class="custom-table">
+        <thead>
+          <tr>
+            <th class="controls-header">Controls</th>
+            <th class="username-header">Username</th>
+            <th class="admin-header">Admin</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for user in users %}
+          <tr>
+            <td class="control-cell">
+              <a href="{{url_for('adminview.user', user=user.id)}}">Edit</a>
+            </td>
+            <td class="username-cell">{{ user.username }}</td>
+            <td class="admin-cell">{{ "Yes" if user.teacher else "No" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endblock %}
+  </body>
+</html>

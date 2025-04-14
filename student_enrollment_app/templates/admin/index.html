@@ -1,0 +1,91 @@
+{% extends 'admin/master.html' %}
+
+{% block body %}
+<div class="container">
+    <div class="row mt-3 mb-4">
+        <div class="col-12 text-end">
+            <a href="{{ url_for('logout') }}" class="btn btn-danger">Logout</a>
+        </div>
+    </div>
+
+    <h1>Student Enrollment System - Admin Panel</h1>
+    
+    <div class="row mt-4">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">User Management</h5>
+                </div>
+                <div class="card-body">
+                    <p>Manage student, teacher, and admin accounts</p>
+                    <a href="{{ url_for('user.index_view') }}" class="btn btn-outline-primary">Manage Users</a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Course Management</h5>
+                </div>
+                <div class="card-body">
+                    <p>Add, edit, and delete courses</p>
+                    <a href="{{ url_for('course.index_view') }}" class="btn btn-outline-primary">Manage Courses</a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Enrollment Management</h5>
+                </div>
+                <div class="card-body">
+                    <p>Manage student enrollments and grades</p>
+                    <a href="{{ url_for('enrollment.index_view') }}" class="btn btn-outline-primary">Manage Enrollments</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">System Statistics</h5>
+                </div>
+                <div class="card-body">
+                    <ul class="list-group">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Total Users
+                            <span class="badge bg-primary rounded-pill">{{ admin_view.count_users() }}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Total Courses
+                            <span class="badge bg-primary rounded-pill">{{ admin_view.count_courses() }}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Total Enrollments
+                            <span class="badge bg-primary rounded-pill">{{ admin_view.count_enrollments() }}</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Quick Actions</h5>
+                </div>
+                <div class="card-body">
+                    <a href="{{ url_for('user.create_view') }}" class="btn btn-success mb-2">Create New User</a>
+                    <a href="{{ url_for('course.create_view') }}" class="btn btn-success mb-2">Create New Course</a>
+                    <a href="{{ url_for('role.index_view') }}" class="btn btn-outline-secondary mb-2">Manage Roles</a>
+                    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary mb-2">Back to Main Site</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

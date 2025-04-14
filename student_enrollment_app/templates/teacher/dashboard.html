@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+
+{% block title %}My Classes - Student Enrollment System{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">My Classes</h2>
+<p>Welcome, {{ current_user.name }}!</p>
+
+{% if courses %}
+    <div class="row">
+        {% for course in courses %}
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-header bg-primary text-white">
+                        {{ course.name }}
+                    </div>
+                    <div class="card-body">
+                        <p>{{ course.description }}</p>
+                        <p><strong>Students Enrolled:</strong> {{ course.get_enrollment_count() }} / {{ course.capacity }}</p>
+                        <a href="{{ url_for('teacher_course_detail', course_id=course.id) }}" class="btn btn-primary">View Students</a>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="alert alert-info">
+        You are not teaching any courses yet.
+    </div>
+{% endif %}
+{% endblock %}

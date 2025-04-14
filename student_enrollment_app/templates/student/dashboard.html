@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+
+{% block title %}My Courses - Student Enrollment System{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">My Courses</h2>
+<p>Welcome, {{ current_user.name }}!</p>
+
+{% if courses %}
+    <div class="row">
+        {% for course in courses %}
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-header bg-primary text-white">
+                        {{ course.name }}
+                    </div>
+                    <div class="card-body">
+                        <p>{{ course.description }}</p>
+                        <p><strong>Teacher:</strong> {{ course.teacher.name }}</p>
+                        
+                        {% for enrollment in current_user.enrollments %}
+                            {% if enrollment.course_id == course.id %}
+                                <p>
+                                    <strong>Grade:</strong> 
+                                    {% if enrollment.grade %}
+                                        {{ enrollment.grade }}
+                                    {% else %}
+                                        Not graded yet
+                                    {% endif %}
+                                </p>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="alert alert-info">
+        You are not enrolled in any courses yet. <a href="{{ url_for('student_courses') }}">Browse available courses</a>.
+    </div>
+{% endif %}
+{% endblock %}
