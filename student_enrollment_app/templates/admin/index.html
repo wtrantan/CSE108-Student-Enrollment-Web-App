@@ -2,12 +2,6 @@
 
 {% block body %}
 <div class="container">
-    <div class="row mt-3 mb-4">
-        <div class="col-12 text-end">
-            <a href="{{ url_for('logout') }}" class="btn btn-danger">Logout</a>
-        </div>
-    </div>
-
     <h1>Student Enrollment System - Admin Panel</h1>
     
     <div class="row mt-4">
@@ -79,10 +73,9 @@
                     <h5 class="mb-0">Quick Actions</h5>
                 </div>
                 <div class="card-body">
-                    <a href="{{ url_for('user.create_view') }}" class="btn btn-success mb-2">Create New User</a>
+                    <a href="{{ url_for('admin_create_user') }}" class="btn btn-success mb-2">Create New User</a>
                     <a href="{{ url_for('course.create_view') }}" class="btn btn-success mb-2">Create New Course</a>
-                    <a href="{{ url_for('role.index_view') }}" class="btn btn-outline-secondary mb-2">Manage Roles</a>
-                    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary mb-2">Back to Main Site</a>
+                    <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary mb-2">Logout</a>
                 </div>
             </div>
         </div>

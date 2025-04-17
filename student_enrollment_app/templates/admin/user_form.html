@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if is_edit %}Edit User{% else %}Create User{% endif %} - Admin{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-6">
+        <h1>{% if is_edit %}Edit User{% else %}Create User{% endif %}</h1>
+    </div>
+    <div class="col-6 text-end">
+        <a href="{{ url_for('admin_users') }}" class="btn btn-secondary">Back to Users</a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">{% if is_edit %}Edit User: {{ user.name }}{% else %}New User{% endif %}</h5>
+    </div>
+    <div class="card-body">
+        <form method="POST">
+            {{ form.csrf_token }}
+            
+            <div class="mb-3">
+                {{ form.name.label(class="form-label") }}
+                {{ form.name(class="form-control") }}
+                {% if form.name.errors %}
+                <div class="text-danger">
+                    {% for error in form.name.errors %}
+                    <span>{{ error }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="mb-3">
+                {{ form.email.label(class="form-label") }}
+                {{ form.email(class="form-control") }}
+                {% if form.email.errors %}
+                <div class="text-danger">
+                    {% for error in form.email.errors %}
+                    <span>{{ error }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="mb-3">
+                {{ form.password.label(class="form-label") }}
+                {{ form.password(class="form-control", placeholder="{% if is_edit %}Leave blank to keep current password{% else %}Enter password{% endif %}") }}
+                {% if form.password.errors %}
+                <div class="text-danger">
+                    {% for error in form.password.errors %}
+                    <span>{{ error }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="mb-3">
+                {{ form.role_id.label(class="form-label") }}
+                {{ form.role_id(class="form-select") }}
+                {% if form.role_id.errors %}
+                <div class="text-danger">
+                    {% for error in form.role_id.errors %}
+                    <span>{{ error }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="mb-3">
+                {{ form.submit(class="btn btn-primary") }}
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

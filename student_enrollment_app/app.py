@@ -6,10 +6,9 @@ from flask_admin.contrib.sqla import ModelView
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from datetime import datetime
-from flask_admin.form import Select2Widget
-from wtforms.fields import SelectField
-
-
+from flask_wtf import FlaskForm
+from wtforms import StringField, PasswordField, SelectField, SubmitField
+from wtforms.validators import DataRequired, Email, Length, Optional
 # Initialize Flask app
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
@@ -132,25 +131,165 @@ class AdminModelView(ModelView):
         return redirect(url_for('login'))
 
 class CourseAdminView(AdminModelView):
-    form_extra_fields = {
-        'teacher_id': SelectField('Teacher', coerce=int, widget=Select2Widget())
+    column_list = ['id', 'name', 'description', 'capacity', 'teacher_id', 'created_at']
+    form_columns = ['name', 'description', 'capacity', 'teacher_id']
+    
+    def on_model_change(self, form, model, is_created):
+        # This ensures the teacher relationship is properly set
+        # The form automatically handles the relationship
+        pass
+    
+# Fix for the UserAdminView class
+
+class UserAdminView(AdminModelView):
+    column_list = ['id', 'name', 'email', 'role_id', 'created_at']
+    column_exclude_list = ['password']  # Exclude password from the list of displayed columns
+    form_columns = ['name', 'email', 'password', 'role_id']  # Changed role_id to role
+    
+    # Create choices for the role field
+    form_args = {
+        'role': {
+            'label': 'Role'
+        }
     }
+    
+    # Ensure that passwords are hashed when changed or set
+    def on_model_change(self, form, model, is_created):
+        # Hash password only if it's been updated or provided during creation
+        if form.password.data:
+            model.password = generate_password_hash(form.password.data)
+        elif not is_created:
+            # If the model is not created (it's an edit), retain the original password if none is provided
+            original_model = self.session.query(User).get(model.id)
+            if original_model:
+                model.password = original_model.password
 
-    def create_form(self, obj=None):
-        form = super().create_form(obj)
-        form.teacher_id.choices = [(u.id, u.name) for u in User.query.join(Role).filter(Role.name == 'teacher').all()]
-        return form
+    def is_accessible(self):
+        # Admin can access
+        return current_user.is_authenticated and current_user.role.name == 'admin'
 
-    def edit_form(self, obj=None):
-        form = super().edit_form(obj)
-        form.teacher_id.choices = [(u.id, u.name) for u in User.query.join(Role).filter(Role.name == 'teacher').all()]
+    def inaccessible_callback(self, name, **kwargs):
+        # Redirect to login if the user is not authorized to access the admin panel
+        flash('You do not have permission to access the admin panel.', 'danger')
+        return redirect(url_for('login'))
+
+# Add these imports at the top of your file
+
+
+class EnrollmentAdminView(AdminModelView):
+    column_list = ['id', 'student_id', 'student_name', 'course_id', 'grade', 'enrollment_date']
+    form_columns = ['student_id', 'course_id', 'grade']
+    
+    # Format the grade as a float with 1 decimal place
+    column_formatters = {
+        'grade': lambda v, c, m, p: f"{m.grade:.1f}" if m.grade is not None else "Not graded",
+        'student_name': lambda v, c, m, p: m.student.name if hasattr(m, 'student') and m.student else "Unknown"  # Display the student name with better error handling
+    }
+    
+    # Use column_filters with the actual column names, not relationship names
+    column_filters = ['student_id', 'course_id', 'grade']
+    
+    # Override the handle_view_exception method to catch our custom validation errors
+    def handle_view_exception(self, exc):
+        if isinstance(exc, ValueError):
+            flash(str(exc), 'error')
+            return True  # Indicate that we've handled the exception
+        return super(EnrollmentAdminView, self).handle_view_exception(exc)
+    
+    # Update the create and edit form to include choices for student and course
+    def create_form(self):
+        form = super(EnrollmentAdminView, self).create_form()
+        
+        # Get all students and courses for the dropdowns
+        students = User.query.join(Role).filter(Role.name == 'student').all()
+        courses = Course.query.all()
+        
+        # Create choices for the select fields
+        student_choices = [(s.id, s.name) for s in students]
+        course_choices = [(c.id, c.name) for c in courses]
+        
+        # Update the form fields
+        form.student_id.choices = student_choices
+        form.course_id.choices = course_choices
+        
         return form
+    
+    def edit_form(self, obj):
+        form = super(EnrollmentAdminView, self).edit_form(obj)
+        
+        # Get all students and courses for the dropdowns
+        students = User.query.join(Role).filter(Role.name == 'student').all()
+        courses = Course.query.all()
+        
+        # Create choices for the select fields
+        student_choices = [(s.id, s.name) for s in students]
+        course_choices = [(c.id, c.name) for c in courses]
+        
+        # Update the form fields
+        form.student_id.choices = student_choices
+        form.course_id.choices = course_choices
+        
+        return form
+    
+    def on_model_change(self, form, model, is_created):
+        # Clear any potential stale session data
+        self.session.expire_all()
+        self.session.commit()
+        
+        try:
+            # Validate the grade (if provided)
+            if model.grade is not None and (model.grade < 0 or model.grade > 100):
+                raise ValueError('Grade must be between 0 and 100')
+            
+            # Check if enrollment already exists only when creating a new one
+            if is_created:
+                student_id = model.student_id
+                course_id = model.course_id
+                
+                # Get student and course objects for better error messages
+                student = User.query.get(student_id)
+                course = Course.query.get(course_id)
+                
+                if not student or not course:
+                    raise ValueError('Invalid student or course selected')
+                
+                # Use raw SQL to check for existing enrollment to avoid session issues
+                sql = "SELECT id FROM enrollment WHERE student_id = :sid AND course_id = :cid"
+                result = db.session.execute(sql, {"sid": student_id, "cid": course_id}).first()
+                
+                if result:
+                    enrollment_id = result[0]
+                    raise ValueError(f'Student "{student.name}" is already enrolled in course "{course.name}" (Enrollment ID: {enrollment_id})')
+                
+                # Check if the course has reached capacity
+                sql_count = "SELECT COUNT(*) FROM enrollment WHERE course_id = :cid"
+                enrolled_count = db.session.execute(sql_count, {"cid": course_id}).scalar()
+                
+                if enrolled_count >= course.capacity:
+                    raise ValueError(f'The course "{course.name}" has reached its maximum capacity of {course.capacity}')
+        
+        except ValueError as e:
+            # Re-raise the error so it can be caught by handle_view_exception
+            raise ValueError(str(e))
+        except Exception as e:
+            # Add a generic exception handler to catch other issues
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"Unexpected error: {error_details}")
+            raise ValueError(f'Error processing enrollment: {str(e)}')
+            
+# Absolute minimum implementation
+class BasicUserAdmin(ModelView):
+    # Only show name and email
+    column_list = ['name', 'email']
+    form_columns = ['name', 'email', 'password', 'role_id']
+    
 # Register admin views
-admin = Admin(app, name='Enrollment Admin', template_mode='bootstrap3', index_view=MyAdminIndexView())
-admin.add_view(AdminModelView(User, db.session))
+admin = Admin(app, name='Enrollment Admin', template_mode='bootstrap4', index_view=MyAdminIndexView())
+admin.add_view(UserAdminView(User, db.session))
 admin.add_view(CourseAdminView(Course, db.session))
-admin.add_view(AdminModelView(Enrollment, db.session))
-admin.add_view(AdminModelView(Role, db.session))
+admin.add_view(EnrollmentAdminView(Enrollment, db.session))
+
 
 # Routes
 @app.route('/')
@@ -298,6 +437,31 @@ def enroll_course(course_id):
     flash(f'Successfully enrolled in {course.name}!', 'success')
     return redirect(url_for('student_dashboard'))
 
+@app.route('/student/unenroll/<int:course_id>', methods=['POST'])
+@login_required
+@role_required('student')
+def unenroll_course(course_id):
+    # Find the enrollment
+    enrollment = Enrollment.query.filter_by(
+        student_id=current_user.id, 
+        course_id=course_id
+    ).first_or_404()
+    
+    try:
+        # Get course name for the flash message
+        course_name = enrollment.course.name
+        
+        # Delete the enrollment
+        db.session.delete(enrollment)
+        db.session.commit()
+        
+        flash(f'You have successfully unenrolled from {course_name}.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error while unenrolling: {str(e)}', 'danger')
+    
+    return redirect(url_for('student_dashboard'))
+
 # Teacher routes
 @app.route('/teacher/dashboard')
 @login_required
@@ -356,6 +520,182 @@ def update_grade(enrollment_id):
     
     flash('Grade updated successfully!', 'success')
     return redirect(url_for('teacher_course_detail', course_id=course.id))
+
+#User management form
+class UserForm(FlaskForm):
+    name = StringField('Name', validators=[DataRequired(), Length(max=100)])
+    email = StringField('Email', validators=[DataRequired(), Email(), Length(max=100)])
+    password = PasswordField('Password', validators=[Optional(), Length(min=6)])
+    role_id = SelectField('Role', coerce=int, validators=[DataRequired()])
+    submit = SubmitField('Save')
+
+# Routes for custom user management
+# Routes for custom user management
+@app.route('/admin/custom_users')
+@login_required
+@role_required('admin')
+def admin_users():
+    # Get query parameters
+    search = request.args.get('search', '')
+    role_id = request.args.get('role', '')
+    sort_field = request.args.get('sort', 'id')
+    sort_direction = request.args.get('direction', 'asc')
+    
+    # Start with base query
+    query = User.query
+    
+    # Apply search filter if provided
+    if search:
+        query = query.filter(
+            db.or_(
+                User.name.ilike(f'%{search}%'),
+                User.email.ilike(f'%{search}%')
+            )
+        )
+    
+    # Apply role filter if provided
+    if role_id and role_id.isdigit():
+        query = query.filter(User.role_id == int(role_id))
+    
+    # Apply sorting
+    if sort_field == 'name':
+        if sort_direction == 'desc':
+            query = query.order_by(User.name.desc())
+        else:
+            query = query.order_by(User.name)
+    elif sort_field == 'email':
+        if sort_direction == 'desc':
+            query = query.order_by(User.email.desc())
+        else:
+            query = query.order_by(User.email)
+    elif sort_field == 'created_at':
+        if sort_direction == 'desc':
+            query = query.order_by(User.created_at.desc())
+        else:
+            query = query.order_by(User.created_at)
+    else:  # Default sort by ID
+        if sort_direction == 'desc':
+            query = query.order_by(User.id.desc())
+        else:
+            query = query.order_by(User.id)
+    
+    # Execute query and get users
+    users = query.all()
+    
+    # Get all roles for the filter dropdown
+    roles = Role.query.all()
+    
+    return render_template(
+        'admin/users.html', 
+        users=users,
+        roles=roles,
+        search=search,
+        role_id=role_id,
+        sort_field=sort_field,
+        sort_direction=sort_direction
+    )
+
+# Keep the same function names but change the routes
+@app.route('/admin/custom_users/create', methods=['GET', 'POST'])
+@login_required
+@role_required('admin')
+def admin_create_user():
+    form = UserForm()
+    
+    # Populate role choices
+    form.role_id.choices = [(r.id, r.name) for r in Role.query.all()]
+    
+    if form.validate_on_submit():
+        # Check if email already exists
+        existing_user = User.query.filter_by(email=form.email.data).first()
+        if existing_user:
+            flash('Email already registered.', 'danger')
+            return render_template('admin/user_form.html', form=form, is_edit=False)
+        
+        # Create new user
+        new_user = User(
+            name=form.name.data,
+            email=form.email.data,
+            password=generate_password_hash(form.password.data),
+            role_id=form.role_id.data
+        )
+        
+        db.session.add(new_user)
+        db.session.commit()
+        
+        flash('User created successfully!', 'success')
+        return redirect(url_for('admin_users'))
+    
+    return render_template('admin/user_form.html', form=form, is_edit=False)
+
+@app.route('/admin/custom_users/edit/<int:user_id>', methods=['GET', 'POST'])
+@login_required
+@role_required('admin')
+def admin_edit_user(user_id):
+    user = User.query.get_or_404(user_id)
+    form = UserForm(obj=user)
+    
+    # Populate role choices
+    form.role_id.choices = [(r.id, r.name) for r in Role.query.all()]
+    
+    # For GET requests, don't show the password
+    if request.method == 'GET':
+        form.password.data = ''
+    
+    if form.validate_on_submit():
+        # Update user details
+        user.name = form.name.data
+        user.email = form.email.data
+        user.role_id = form.role_id.data
+        
+        # Only update password if provided
+        if form.password.data:
+            user.password = generate_password_hash(form.password.data)
+        
+        db.session.commit()
+        
+        flash('User updated successfully!', 'success')
+        return redirect(url_for('admin_users'))
+    
+    return render_template('admin/user_form.html', form=form, is_edit=True, user=user)
+
+@app.route('/admin/custom_users/delete/<int:user_id>', methods=['POST'])
+@login_required
+@role_required('admin')
+def admin_delete_user(user_id):
+    user = User.query.get_or_404(user_id)
+    
+    # Prevent deletion of the current user
+    if user.id == current_user.id:
+        flash('You cannot delete your own account.', 'danger')
+        return redirect(url_for('admin_users'))
+    
+    try:
+        # First delete all enrollments for this user
+        Enrollment.query.filter_by(student_id=user.id).delete()
+        
+        # If the user is a teacher, handle courses
+        if user.role.name == 'teacher':
+            # Option 1: Delete courses taught by this teacher
+            # Course.query.filter_by(teacher_id=user.id).delete()
+            
+            # Option 2: Reassign courses to another teacher or set to NULL
+            # This depends on whether teacher_id can be NULL in your Course model
+            Course.query.filter_by(teacher_id=user.id).update({'teacher_id': None})
+        
+        # Now delete the user
+        db.session.delete(user)
+        db.session.commit()
+        
+        flash('User deleted successfully!', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error deleting user: {str(e)}', 'danger')
+    
+    return redirect(url_for('admin_users'))
+
+
+
 
 # Initialize the database and create default data
 def initialize_database():
