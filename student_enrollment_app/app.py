@@ -39,9 +39,12 @@ class User(db.Model, UserMixin):
     role_id = db.Column(db.Integer, db.ForeignKey('role.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now)
     
-    # Relationships
-    courses_teaching = db.relationship('Course', backref='teacher', lazy=True)
-    enrollments = db.relationship('Enrollment', backref='student', lazy=True)
+    # Modified relationships with cascade options
+    courses_teaching = db.relationship('Course', backref='teacher', lazy=True, 
+                                      cascade="all, delete-orphan")
+    enrollments = db.relationship('Enrollment', backref='student', lazy=True,
+                                 cascade="all, delete-orphan", 
+                                 primaryjoin="User.id==Enrollment.student_id")
     
     def __repr__(self):
         return f'<User {self.name}>'
@@ -181,28 +184,43 @@ class UserAdminView(AdminModelView):
 
 
 class EnrollmentAdminView(AdminModelView):
-    column_list = ['id', 'student_id', 'student_name', 'course_id', 'grade', 'enrollment_date']
+    column_list = ['id', 'student_id', 'course_id', 'grade', 'enrollment_date']
     form_columns = ['student_id', 'course_id', 'grade']
     
     # Format the grade as a float with 1 decimal place
     column_formatters = {
-        'grade': lambda v, c, m, p: f"{m.grade:.1f}" if m.grade is not None else "Not graded",
-        'student_name': lambda v, c, m, p: m.student.name if hasattr(m, 'student') and m.student else "Unknown"  # Display the student name with better error handling
+        'grade': lambda v, c, m, p: f"{m.grade:.1f}" if m.grade is not None else "Not graded"
     }
     
-    # Use column_filters with the actual column names, not relationship names
+    # Use column_filters with the actual column names
     column_filters = ['student_id', 'course_id', 'grade']
     
-    # Override the handle_view_exception method to catch our custom validation errors
     def handle_view_exception(self, exc):
         if isinstance(exc, ValueError):
             flash(str(exc), 'error')
             return True  # Indicate that we've handled the exception
         return super(EnrollmentAdminView, self).handle_view_exception(exc)
     
-    # Update the create and edit form to include choices for student and course
     def create_form(self):
-        form = super(EnrollmentAdminView, self).create_form()
+        # Create the form first without parameters
+        form = super().create_form()
+        
+        # Get all students and courses for the dropdowns
+        students = User.query.join(Role).filter(Role.name == 'student').all()
+        courses = Course.query.all()
+        
+        # Create choices for the select fields
+        student_choices = [(s.id, s.name) for s in students]
+        course_choices = [(c.id, c.name) for c in courses]
+        
+        # Update the form fields with choices
+        form.student_id.choices = student_choices
+        form.course_id.choices = course_choices
+        
+        return form
+    
+    def edit_form(self, obj):
+        form = super().edit_form(obj)
         
         # Get all students and courses for the dropdowns
         students = User.query.join(Role).filter(Role.name == 'student').all()
@@ -218,22 +236,27 @@ class EnrollmentAdminView(AdminModelView):
         
         return form
     
-    def edit_form(self, obj):
-        form = super(EnrollmentAdminView, self).edit_form(obj)
-        
-        # Get all students and courses for the dropdowns
-        students = User.query.join(Role).filter(Role.name == 'student').all()
-        courses = Course.query.all()
-        
-        # Create choices for the select fields
-        student_choices = [(s.id, s.name) for s in students]
-        course_choices = [(c.id, c.name) for c in courses]
-        
-        # Update the form fields
-        form.student_id.choices = student_choices
-        form.course_id.choices = course_choices
-        
-        return form
+    def validate_form(self, form):
+        # Skip validation if form doesn't have student_id (i.e., it's a DeleteForm)
+        if not hasattr(form, 'student_id') or not hasattr(form, 'course_id'):
+            return True  # allow delete
+
+        student_id = form.student_id.data
+        course_id = form.course_id.data
+
+        # Check if student exists
+        student = User.query.get(student_id)
+        if not student:
+            flash('Student does not exist. Please create the user first.', 'danger')
+            return False
+
+        # Check if already enrolled
+        existing = Enrollment.query.filter_by(student_id=student_id, course_id=course_id).first()
+        if existing:
+            flash('Student is already enrolled in this course.', 'warning')
+            return False
+
+        return True
     
     def on_model_change(self, form, model, is_created):
         # Clear any potential stale session data
@@ -250,12 +273,15 @@ class EnrollmentAdminView(AdminModelView):
                 student_id = model.student_id
                 course_id = model.course_id
                 
-                # Get student and course objects for better error messages
+                # Double-check student exists
                 student = User.query.get(student_id)
-                course = Course.query.get(course_id)
+                if not student:
+                    raise ValueError(f'Student with ID {student_id} does not exist')
                 
-                if not student or not course:
-                    raise ValueError('Invalid student or course selected')
+                # Double-check course exists
+                course = Course.query.get(course_id)
+                if not course:
+                    raise ValueError(f'Course with ID {course_id} does not exist')
                 
                 # Use raw SQL to check for existing enrollment to avoid session issues
                 sql = "SELECT id FROM enrollment WHERE student_id = :sid AND course_id = :cid"
@@ -281,6 +307,56 @@ class EnrollmentAdminView(AdminModelView):
             error_details = traceback.format_exc()
             print(f"Unexpected error: {error_details}")
             raise ValueError(f'Error processing enrollment: {str(e)}')
+    
+    # Display student and course names in the list view
+    def _list_entry(self, context, model, name):
+        if name == 'student_id':
+            student = User.query.get(model.student_id)
+            if student:
+                return student.name
+            else:
+                # Mark this enrollment for deletion since it has an invalid student
+                self._mark_invalid_enrollment(model.id)
+                return f"Invalid ID: {model.student_id}"
+        elif name == 'course_id':
+            course = Course.query.get(model.course_id)
+            if course:
+                return course.name
+            else:
+                # Mark this enrollment for deletion since it has an invalid course
+                self._mark_invalid_enrollment(model.id)
+                return f"Invalid ID: {model.course_id}"
+        return super()._list_entry(context, model, name)
+    
+    def _mark_invalid_enrollment(self, enrollment_id):
+        # Set a flag to delete this enrollment
+        if not hasattr(self, '_invalid_enrollments'):
+            self._invalid_enrollments = set()
+        self._invalid_enrollments.add(enrollment_id)
+    
+    # Clean up invalid enrollments when the list view is rendered
+    def render(self, template, **kwargs):
+        # Clean up invalid enrollments before rendering
+        self._cleanup_invalid_enrollments()
+        return super().render(template, **kwargs)
+    
+    def _cleanup_invalid_enrollments(self):
+        if hasattr(self, '_invalid_enrollments') and self._invalid_enrollments:
+            try:
+                for enrollment_id in self._invalid_enrollments:
+                    enrollment = Enrollment.query.get(enrollment_id)
+                    if enrollment:
+                        # Log the deletion
+                        print(f"Deleting invalid enrollment: ID={enrollment_id}, Student ID={enrollment.student_id}, Course ID={enrollment.course_id}")
+                        db.session.delete(enrollment)
+                
+                db.session.commit()
+                flash(f"Cleaned up {len(self._invalid_enrollments)} invalid enrollment(s)", 'warning')
+                # Clear the set after cleanup
+                self._invalid_enrollments.clear()
+            except Exception as e:
+                db.session.rollback()
+                print(f"Error cleaning up invalid enrollments: {str(e)}")
             
 # Absolute minimum implementation
 class BasicUserAdmin(ModelView):
@@ -674,27 +750,46 @@ def admin_delete_user(user_id):
         flash('You cannot delete your own account.', 'danger')
         return redirect(url_for('admin_users'))
     
+    # Start a transaction
     try:
-        # First delete all enrollments for this user
-        Enrollment.query.filter_by(student_id=user.id).delete()
+        # Get user's role for later checks
+        user_role_name = user.role.name if user.role else None
         
-        # If the user is a teacher, handle courses
-        if user.role.name == 'teacher':
-            # Option 1: Delete courses taught by this teacher
-            # Course.query.filter_by(teacher_id=user.id).delete()
+        # Handle enrollments - both as student and related to courses taught
+        try:
+            # Delete enrollments where user is a student
+            student_enrollments = Enrollment.query.filter_by(student_id=user.id).all()
+            for enrollment in student_enrollments:
+                db.session.delete(enrollment)
+            db.session.flush()  # Flush changes but don't commit yet
             
-            # Option 2: Reassign courses to another teacher or set to NULL
-            # This depends on whether teacher_id can be NULL in your Course model
-            Course.query.filter_by(teacher_id=user.id).update({'teacher_id': None})
+            # If teacher, handle course enrollments
+            if user_role_name == 'teacher':
+                # Get all courses taught by this teacher
+                teacher_courses = Course.query.filter_by(teacher_id=user.id).all()
+                for course in teacher_courses:
+                    # Set teacher_id to NULL
+                    course.teacher_id = None
+                # Delete course and related enrollments
+                db.session.flush()  # Flush changes but don't commit yet
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Error handling user relationships: {str(e)}', 'danger')
+            return redirect(url_for('admin_users'))
         
-        # Now delete the user
-        db.session.delete(user)
-        db.session.commit()
-        
-        flash('User deleted successfully!', 'success')
+        #Delete the user
+        try:
+            db.session.delete(user)
+            db.session.commit()
+            flash('User deleted successfully!', 'success')
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Error deleting user: {str(e)}', 'danger')
+            return redirect(url_for('admin_users'))
+            
     except Exception as e:
         db.session.rollback()
-        flash(f'Error deleting user: {str(e)}', 'danger')
+        flash(f'Unexpected error: {str(e)}', 'danger')
     
     return redirect(url_for('admin_users'))
 
